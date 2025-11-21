@@ -1,0 +1,287 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Ancient Script Translator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6" x-data="app()">
+    <header class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-semibold">Ancient Script Translator</h1>
+      <div>
+        <!-- <button @click="exportCluster()" class="px-3 py-1 bg-indigo-600 text-white rounded">Export Cluster</button>
+        <button @click="trainFromClusters()" class="px-3 py-1 bg-green-600 text-white rounded ml-2">Train From Clusters</button>
+        <button @click="downloadTranslatedCSV()" class="mt-2 w-full py-2 bg-yellow-600 text-white rounded">
+          Download OCR+Translated CSV
+        </button> -->
+        <button @click="restoreAndExport()" class="px-3 py-1 bg-emerald-600 text-white rounded ml-2">Restore & Export DOCX</button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-3 gap-6">
+      <div class="col-span-1 bg-white p-4 rounded shadow">
+        <h2 class="font-medium mb-2">Upload</h2>
+        <input type="file" id="fileInput" multiple class="mb-2"/>
+        <button @click="upload()" class="w-full py-2 bg-indigo-600 text-white rounded">Upload & Cluster</button>
+        <div class="mt-4">
+          <label class="block text-sm">Clusters (k):</label>
+          <input type="number" x-model="k" min="1" max="64" class="mt-1 w-full border rounded p-1"/>
+        </div>
+        <div class="mt-4">
+          <h3 class="text-sm font-medium mb-1">Last JSON</h3>
+          <pre class="text-xs bg-slate-100 p-2 h-40 overflow-auto" x-text="csv"></pre>
+          <button @click="downloadCSV()" class="mt-2 w-full py-2 bg-gray-700 text-white rounded">Download JSON</button>
+        </div>
+      </div>
+
+      <div class="col-span-2 bg-white p-4 rounded shadow">
+        <h2 class="font-medium mb-2">Preview</h2>
+        <div class="border rounded overflow-hidden">
+          <canvas id="previewCanvas" style="width:100%;height:600px;"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div id="loadingSpinner" style="
+    display:none;
+    position: fixed;
+    top:0; left:0; width:100%; height:100%;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(2px);
+    z-index:9999;
+    align-items:center; justify-content:center;
+">
+    <div class="text-white text-xl animate-pulse">
+        Processing...
+    </div>
+</div>
+<script>
+function app(){
+  return {
+    k:8,
+    csv:'',
+    lastImagePath:'',
+    crops: [],
+    ocrResults: [],
+    // upload + cluster
+    async upload() {
+      const input = document.getElementById('fileInput');
+      if (!input.files.length) return alert('Select files');
+      this.showSpinner();
+
+      try {
+        const fd = new FormData();
+        for (const f of input.files) fd.append('files', f);
+
+        const res = await fetch('/api/upload/', { method: 'POST', body: fd });
+        const j = await res.json();
+
+        if (j.error) return alert(j.error);
+
+        const imagePaths = j.saved.map(s => s.path);
+        this.lastImagePath = imagePaths[0]; // keep first one
+
+        const clusterRes = await fetch('/api/cluster/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            images: imagePaths,
+            k: this.k
+          })
+        });
+
+        const c = await clusterRes.json();
+        console.log("CLUSTER RESPONSE:", c);
+
+        if (c.error) return alert(c.error);
+
+        if (!c.results || !c.results.length) {
+          return alert("No results returned");
+        }
+
+        const first = c.results[0];
+        this.csv = JSON.stringify(first, null, 2);
+        this.crops = first.crops || [];
+
+        // if (first.clustered_image) {
+          // drawPreview(first);
+        // } else {
+          // alert("No clustered image available for preview");
+        // }
+
+        if (first.clustered_image) {
+          drawPreview(first);
+        }
+
+        if (this.crops.length > 0) {
+          await this.ocrAndTranslate();
+        }
+
+
+      } finally {
+        this.hideSpinner();
+      }
+    },
+
+    async ocrAndTranslate() {
+      if (!this.crops || this.crops.length === 0) {
+          return alert("Run clustering first!");
+      }
+      this.showSpinner();
+
+      try {
+        const res = await fetch('/api/ocr/run', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                crops: this.crops,
+                to: "id"
+            })
+        });
+
+        const j = await res.json();
+        console.log("OCR+TRANSLATE:", j);
+
+        if (j.error) return alert(j.error);
+
+        this.translatedResults = j.results;
+
+        this.csv = JSON.stringify(j.results, null, 2);
+
+      } finally {
+        this.hideSpinner();
+      }
+    },
+
+    downloadTranslatedCSV() {
+      if (!this.ocrResults || !this.ocrResults.length) {
+        return alert("No translated OCR results found");
+      }
+
+      // Prepare CSV content
+      let csv = "image,ocr,translated\n";
+      this.ocrResults.forEach(r => {
+          const ocr = (r.ocr || "").replace(/"/g, '""').replace(/\n/g, ' ');
+          const tr = (r.translated || "").replace(/"/g, '""').replace(/\n/g, ' ');
+          csv += `"${r.image}","${ocr}","${tr}"\n`;
+      });
+
+      // Download
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "translated_results.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
+    downloadCSV(){
+      if(!this.csv) return alert('No csv');
+      const blob = new Blob([this.csv], {type:'text/plain'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'clustered.json'; a.click();
+      URL.revokeObjectURL(url);
+    },
+    
+    async exportCluster(){
+      if(!this.lastImagePath) return alert('No image');
+      const r = await fetch('/api/cluster/export', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({image_path: this.lastImagePath, k: this.k})
+      });
+      const j = await r.json();
+      if(j.ok) alert('Exported to ' + j.out);
+    },
+    
+    async trainFromClusters(){
+      const r = await fetch('/api/train/cnn', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({epochs:10})
+      });
+      const j = await r.json();
+      if(!j.ok) return alert('Train failed: ' + (j.stderr || j.error || JSON.stringify(j)));
+      alert('Training finished');
+    },
+    
+    async restoreAndExport(){
+      if(!this.lastImagePath) return alert("No image to restore. Upload first.");
+      this.showSpinner();
+      try {
+        const r = await fetch('/api/restore/run', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            images: [this.lastImagePath],
+            ocr: true
+          })
+        });
+        const j = await r.json();
+        console.log("RESTORE:", j);
+        if(j.error) return alert(j.error);
+
+        const first = j.results && j.results[0];
+        if(first && !first.error){
+          alert("Restoration done. DOCX saved: " + first.docx);
+          window.open('/' + first.restored_image, '_blank');
+        } else {
+          alert("Restore failed: " + (first && first.error));
+        }
+      } finally {
+        this.hideSpinner();
+      }
+    },
+
+    showSpinner(){ document.getElementById('loadingSpinner').style.display = 'flex'; },
+    
+    hideSpinner(){ document.getElementById('loadingSpinner').style.display = 'none'; },
+  }
+}
+
+
+function drawPreview(result){
+  // result can be: {clustered_image: "data/...png", boxes: [...], cluster_ids: [...]}
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById('previewCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img,0,0);
+
+    const boxes = result.boxes || [];
+    const clusters = result.cluster_ids || [];
+    const colorMap = {};
+    for(let i=0;i<clusters.length;i++){
+      const cid = clusters[i];
+      if(!colorMap[cid]) colorMap[cid] = randomColor(cid);
+      const b = boxes[i];
+      if(!b) continue;
+      ctx.strokeStyle = colorMap[cid];
+      ctx.lineWidth = 2;
+      ctx.strokeRect(b[0], b[1], b[2]-b[0], b[3]-b[1]);
+      ctx.fillStyle = colorMap[cid];
+      ctx.font = "14px Arial";
+      ctx.fillText("C"+cid, b[0]+4, b[1]+14);
+    }
+  };
+
+  const imagePath = result.clustered_image || result.image;
+  img.src = "/" + imagePath;
+}
+
+
+
+function randomColor(seed){
+  const r=(seed*97)%255, g=(seed*53)%255, b=(seed*11)%255;
+  return `rgba(${r},${g},${b},0.9)`;
+}
+</script>
+
+</body>
+</html>
