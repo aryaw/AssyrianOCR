@@ -133,7 +133,42 @@ http://localhost:8501
 }
 ```
 
+
 ---
 
+## Next Development Phase (Planned Updates)
+
+The following features are planned for the upcoming version of Assyrian Script OCR.
+These upgrades will extend the system from pure clustering + restoration into a complete OCR + Transliteration + Translation pipeline.
+
+### Phase 1 - Latin Transliteration (Assyrian → Latin)
+
+A new module will be added to convert clustered/cropped cuneiform symbols into Latin-character transliterations
+
+
+### Target Dataset
+
+Cuneiform Sign Images Dataset (Kaggle)
+This dataset will be used to train the first version of the Latin transliteration model.
+
+Dataset:
+https://www.kaggle.com/datasets/paultimothymooney/cuneiform-sign-images
+
+### Phase 2 - Machine Translation (English → Bahasa Indonesia)
+
+Integrate a translation pipeline allowing OCR’d English text to be translated to Indonesian.
+(This is optional and will be an extra button in the UI.)
+
+### Phase 3 - Unified Full Pipeline (End-to-End)
+
+Future Combined Flow:
+- Upload Image
+- Preprocessing + Restoration
+- Segmentation + Clustering
+- OCR (Latin characters)
+- Transliteration (Assyrian → Latin)
+- Translation (EN → ID)
+
+---
 ## License
 This project is licensed under the MIT License.
