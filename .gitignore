@@ -24,6 +24,9 @@ data/output/img_clustered/
 data/output/crops/
 data/output/**/*.bak
 data/output/**/*.tmp
+data/output/restored/*.docx
+data/output/restored/*.png
+data/output/img_clustered/*.png
 
 node_modules/
 dist/

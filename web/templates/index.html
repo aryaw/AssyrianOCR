@@ -83,7 +83,8 @@ function app(){
         if (j.error) return alert(j.error);
 
         const imagePaths = j.saved.map(s => s.path);
-        this.lastImagePath = imagePaths[0]; // keep first one
+        this.allImages = imagePaths;
+        this.lastImagePath = imagePaths[0];
 
         const clusterRes = await fetch('/api/cluster/run', {
           method: 'POST',
@@ -117,8 +118,12 @@ function app(){
           drawPreview(first);
         }
 
+        // if (this.crops.length > 0) {
+        //   await this.ocrAndTranslate();
+        // }
+
         if (this.crops.length > 0) {
-          await this.ocrAndTranslate();
+          await this.restoreAndExport()();
         }
 
 
@@ -217,7 +222,8 @@ function app(){
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({
-            images: [this.lastImagePath],
+            // images: [this.lastImagePath],
+            images: this.allImages,
             ocr: true
           })
         });
